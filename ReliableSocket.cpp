@@ -212,7 +212,9 @@ void ReliableSocket::send_data(const void *data, int length) {
 	}
 
  	// Create the segment, which contains a header followed by the data.
-	char segment[MAX_SEG_SIZE];
+	char send_seg[MAX_SEG_SIZE] = {0};
+	char recv_data[MAX_SEG_SIZE];
+
 
 	// Fill in the header
 	RDTHeader *hdr = (RDTHeader*)segment;
@@ -234,7 +236,22 @@ void ReliableSocket::send_data(const void *data, int length) {
 	// resending until that ack comes.
 	// Utilize the set_timeout_length function to make sure you timeout after
 	// a certain amount of waiting (so you can try sending again).
+	
+	while(true){
+		memset(recv_data, 0, MAX_SEG_SIZE);
+		reliable_send(send_seg, sizeof(RDTHeader) + length, recv_data);
 
+		hdr = (RDTHeader*)recv_data;
+		if (hdr->type == RDT_ACK){
+			if (this->sequence_number = ntohl(hdr->ack_number)){
+				break;
+			}
+			else{
+				continue;
+			}
+		else{
+			continue;
+		}
 	sequence_number++;
 }
 
