@@ -8,7 +8,7 @@
 
 // TODO: You'll likely need to add some new types, as you start doing things
 // like updating accept_connection and close_connection.
-enum RDTMessageType : uint8_t {RDT_CONN, RDT_CLOSE, RDT_ACK, RDT_DATA};
+enum RDTMessageType : uint8_t {RDT_CONN, RDT_CLOSE, RDT_ACK, RDT_DATA, RDT_SYNACK};
 
 /**
  * Format for the header of a segment send by our reliable socket.
@@ -21,7 +21,7 @@ struct RDTHeader {
 
 // TODO: Again, you'll likely need to add new statuses (is that a word?) as
 // you start implementing the reliable protocol.
-enum connection_status { INIT, ESTABLISHED, CLOSED };
+enum connection_status { INIT, ESTABLISHED, CLOSED, FIN};
 
 /**
  * Class that represents a socket using a reliable data transport protocol.
@@ -107,10 +107,26 @@ private:
 	 * @param timeout_length_ms Length of timeout period in milliseconds.
 	 */
 	void set_timeout_length(uint32_t timeout_length_ms);
-
+	
+	
 	/*
 	 * Add new member functions (i.e. methods) after this point.
 	 * Remember that only the comment and header line goes here. The
 	 * implementation should be in the .cpp file.
 	 */
+	
+	/*
+	 * Uses RTT value to call set_timeout_length().
+	 */
+	void set_estimated_rtt();
+
+	/*
+	 * Serves as a sender between sender and receiver when closing a connection. 
+	 */
+	void send_close_connection();
+
+	/*
+	 * Serves as a receiver between sender and receiver when closing a connection. 
+	 */
+	void receive_close_connection();
 };
