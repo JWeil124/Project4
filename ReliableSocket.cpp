@@ -354,8 +354,111 @@ void ReliableSocket::close_connection() {
 	// TODO: As with creating a connection, you need to add some reliability
 	// into closing the connection to make sure both sides know that the
 	// connection has been closed.
-
+	if (this->state != FIN) {
+		this->send_close_connection();
+	}
+	else {
+		this->receive_close_connection();
+	}
+	
+	this->state = CLOSED;
 	if (close(this->sock_fd) < 0) {
 		perror("close_connection close");
 	}
+	cerr << "Connection closed";
+	
+}
+
+void ReliableSocket::send_close_connection() {
+
+	char send_seg[MAX_SEG_SIZE] = {0};
+	char recv_seg[MAX_SEG_SIZE];
+
+	RDTHeader* hdr = (RDTHeader*)send_seg;
+	hdr->ack_number = htonl(0);
+	hdr->sequence_number = htonl(0);
+	hdr->type = RDT_CLOSE;
+
+	while (true) {
+		// First close message
+		memset(recv_seg, 0, MAX_SEG_SIZE);
+		this->reliable_send(send_seg, sizeof(RDTHeader), recv_seg);
+		hdr = (RDTHeader*)recv_seg;
+		if (hdr->type == RDT_ACK) {
+			break;
+		}
+		
+		// See if ACK was dropped
+		if (hdr->type == RDT_CLOSE) {
+			break;
+		}
+	}
+
+	while (true)
+	{
+		memset(recv_seg, 0, MAX_SEG_SIZE);
+		int recv_count = recv(this->sock_fd, recv_seg, MAX_SEG_SIZE, 0);
+		if (recv_count < 0) {
+			continue;
+		} 
+		else if (recv_count < 0 && errno != EAGAIN) {
+			perror("recv send_close_connection");
+			exit(EXIT_FAILURE);
+		}
+
+		hdr = (RDTHeader*)recv_seg;
+		if (hdr->type == RDT_CLOSE) {
+			break;
+		}
+	} 
+
+	hdr = (RDTHeader*)send_seg;
+	hdr->type = RDT_ACK;
+
+	while (true) {
+		if (send(this->sock_fd, send_seg, sizeof(RDTHeader), 0) < 0) {
+			// Error occurred while sending
+			perror("send_close_connection send");
+		}
+		memset(recv_seg, 0, MAX_SEG_SIZE);
+		this->set_timeout_length(TIME_WAIT);
+		if (recv(this->sock_fd, recv_seg, MAX_SEG_SIZE, 0) > 0) {
+			hdr = (RDTHeader*)recv_seg;
+			if (hdr->type == RDT_CLOSE) {
+				continue;
+			}
+		} 
+		else {
+			if (errno == EAGAIN) {
+				break;
+			}
+			else {
+				perror("send_close_connection recv");
+				exit(EXIT_FAILURE);
+			}
+		}
+	}
+}
+
+void ReliableSocket::receive_close_connection() {
+	char send_seg[MAX_SEG_SIZE] = {0};
+	char recv_seg[MAX_SEG_SIZE];
+
+	RDTHeader* hdr = (RDTHeader*)send_seg;
+	hdr->ack_number = htonl(0);
+	hdr->sequence_number = htonl(0);
+	hdr->type = RDT_CLOSE;
+	
+	this->set_timeout_length(this->estimated_rtt + (4 * this->dev_rtt));
+
+	while (true)
+	{
+		// Check for final ACK
+		memset(recv_seg, 0, MAX_SEG_SIZE);
+		this->reliable_send(send_seg, sizeof(RDTHeader), recv_seg);
+		hdr = (RDTHeader*)recv_seg;
+		if (hdr->type == RDT_ACK) {
+			break;
+		}
+	} 
 }
