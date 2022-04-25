@@ -101,17 +101,17 @@ void ReliableSocket::accept_connection(int port_num) {
 	// both sides are correctly connected (e.g. what happens if the RDT_CONN
 	// message from the other end gets lost?)
 	// Note that this function is called by the connection receiver/listener.
-	char send_data[1400] = {0};
+	char send_seg[1400] = {0};
 	char recv_data[1400];
 
 
-	hdr = (RDTHeader*)send_data;
+	hdr = (RDTHeader*)send_seg;
 	hdr->ack_number = htonl(0);
 	hdr->sequence_number = htonl(0);
 	hdr->type = RDT_SYNACK;
 
 	while(true){
-		this->reliable_send(send_data, sizeof(RDTHeader), recv_data);
+		this->reliable_send(send_seg, sizeof(RDTHeader), recv_data);
 		set_timeout_length(this->estimated_rtt + (4 * this->dev_rtt));
 		hdr = (RDTHeader*)recv_data;
 
@@ -154,8 +154,8 @@ void ReliableSocket::connect_to_remote(char *hostname, int port_num) {
 	
 	// Send an RDT_CONN message to remote host to initiate an RDT connection.
 	char segment[sizeof(RDTHeader)];
+	
 	RDTHeader* hdr = (RDTHeader*)segment;
-
 	hdr->ack_number = htonl(0);
 	hdr->sequence_number = htonl(0);
 	hdr->type = RDT_CONN;
@@ -186,11 +186,101 @@ void ReliableSocket::connect_to_remote(char *hostname, int port_num) {
 	cerr << "INFO: Connection ESTABLISHED\n";
 }
 
+void ReliableSocket::reliable_send(char send_seg[MAX_SEG_SIZE], int send_seg_size, char recv_data[MAX_SEG_SIZE]) {
+	int time_sent;
+	this->set_timeout_length(this->estimated_rtt + (4 * this->dev_rtt));
+	// Keeps track if the previous send timed out
+	bool previous_timeout = false;
+	// Stores the previous timeout time. So it can be doubled in the case of a
+	// timeout
+	uint32_t doubled_timeout;
+	do {
+		// Get time of send to calculate current_rtt
+		time_sent = current_msec();
+		// Send the send_seg
+		if (send(this->sock_fd, send_seg, send_seg_size, 0) < 0) {
+			perror("reliable_send send");
+		}
+		// Get ready to receive the segment
+		memset(recv_seg, 0, MAX_SEG_SIZE);
+		int bytes_received = recv(this->sock_fd, recv_data, MAX_SEG_SIZE, 0);
+		if (bytes_received < 0) {
+			if (errno == EAGAIN) {
+				// set the timeout length to double whatever it was previously
+				cerr << "Timeout Occurred. Doubling the length.\n";
+				if (previous_timeout) {
+					doubled_timeout *= 2;
+					this->set_timeout_length(doubled_timeout);
+				}
+				else {
+					doubled_timeout = (2 * (this->estimated_rtt + 4 * this->dev_rtt));
+					this->set_timeout_length(doubled_timeout);
+				}
+				previous_timeout = true;
+				continue;
+			}
+			else {
+				// Some other error than timeouts
+				perror("ACK not received");
+				exit(EXIT_FAILURE);
+			}
+		}
+
+		this->current_rtt = current_msec() - time_sent;
+		break;
+	} while (true); 
+
+	// Update the timeout length using the new current_rtt
+	this->set_estimated_rtt();
+}
+
+void ReliableSocket::timeout_send(char send_seg[]) {
+	char recv_seg[MAX_SEG_SIZE];
+	do {
+		if (send(this->sock_fd, send_seg, sizeof(RDTHeader), 0) < 0) {
+			perror("timeout_send send");
+		}
+		
+		memset(recv_seg, 0, MAX_SEG_SIZE);
+		this->set_timeout_length(this->estimated_rtt + (this->dev_rtt * 4));
+		if (recv(this->sock_fd, recv_seg, MAX_SEG_SIZE, 0) < 0) {
+			if (errno == EAGAIN) {
+				// Timed out
+				break;
+			}
+			else {
+				perror("timeout_send recv");
+				exit(EXIT_FAILURE);
+			}
+		} else {
+			// Got a packet in return so continue the loop
+			continue;
+		}
+	} while (true);
+
+}
+
 
 // You should not modify this function in any way.
 uint32_t ReliableSocket::get_estimated_rtt() {
 	return this->estimated_rtt;
 }
+
+void ReliableSocket::set_estimated_rtt() {
+	// calculate the estimated_rtt
+	this->estimated_rtt *= (1 - 0.125);
+	this->estimated_rtt += this->current_rtt * 0.125;
+	this->dev_rtt *= (1 - 0.25);
+	// Find the difference (can't be negative)
+	int abs_dev = this->current_rtt - this->estimated_rtt;
+	if (abs_dev < 0) {
+		abs_dev *= -1;
+	}
+	this->dev_rtt += (abs_dev * 0.25);
+	// Update the timeout length
+	this->set_timeout_length(this->estimated_rtt + 4 * this->dev_rtt);
+}
+
 
 // You shouldn't need to modify this function in any way.
 void ReliableSocket::set_timeout_length(uint32_t timeout_length_ms) {
@@ -246,10 +336,10 @@ void ReliableSocket::send_data(const void *data, int length) {
 			if (this->sequence_number = ntohl(hdr->ack_number)){
 				break;
 			}
-			else{
+			else {
 				continue;
 			}
-		else{
+		else {
 			continue;
 		}
 	this->sequence_number++;
