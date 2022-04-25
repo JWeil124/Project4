@@ -93,6 +93,7 @@ private:
 	uint32_t sequence_number;
 	uint32_t expected_sequence_number;
 	int estimated_rtt;
+	int current_rtt;
 	int dev_rtt;
 	connection_status state;
 
@@ -108,7 +109,6 @@ private:
 	 */
 	void set_timeout_length(uint32_t timeout_length_ms);
 	
-	
 	/*
 	 * Add new member functions (i.e. methods) after this point.
 	 * Remember that only the comment and header line goes here. The
@@ -119,6 +119,23 @@ private:
 	 * Uses RTT value to call set_timeout_length().
 	 */
 	void set_estimated_rtt();
+	
+	/*
+	 * Calls send() and waits for a message in response and stores it, as well as updating timeout length
+	 *
+	 * @param *send_seg pointer to the segment to be sent
+	 * @param send_seg_size the size of the segment to be sent
+	 * @param *recv_seg pointer to the buffer that will store the received msg
+	 */
+	void reliable_send(char *send_seg, int send_seg_size, char *recv_seg);
+
+	/*
+	 * Calls send() and expects it to timeout. If not, the segment will be
+	 * resent.
+	 * 
+	 * @param *send_seg pointer to the segment to be sent
+	 */
+	void timeout_send(char *send_seg);
 
 	/*
 	 * Serves as a sender between sender and receiver when closing a connection. 
